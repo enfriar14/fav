@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simple Pink Player</title>
+<style>
+:root{--bg:#ffe8f1;--card:#fff;--ink:#8a3560;--soft:#d48bad;--pink:#ff6fa8;--line:#ffd6e6;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#2a0e1e;--card:#3d1830;--ink:#ffd9ea;--soft:#d98fb3;--line:#5a2440}}
+:root[data-theme="dark"]{--bg:#2a0e1e;--card:#3d1830;--ink:#ffd9ea;--soft:#d98fb3;--line:#5a2440}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg);font-family:system-ui,-apple-system,sans-serif;color:var(--ink);display:flex;justify-content:center;align-items:center;padding:20px 14px}
+.card{width:100%;max-width:340px;background:var(--card);border-radius:28px;padding:26px;text-align:center;box-shadow:0 12px 36px rgba(255,111,168,.22)}
+.art{font-size:64px;width:130px;height:130px;margin:0 auto 16px;border-radius:32px;background:var(--line);display:flex;align-items:center;justify-content:center}
+h1{font-size:20px;margin:0}
+.by{color:var(--soft);font-size:14px;margin:4px 0 18px}
+input{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:99px;background:linear-gradient(90deg,var(--pink) var(--p,0%),var(--line) var(--p,0%));outline:none}
+input::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--pink)}
+input::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:var(--pink)}
+.ctrl{display:flex;justify-content:center;align-items:center;gap:22px;margin:18px 0 12px}
+button{border:0;background:none;cursor:pointer;color:var(--ink);font-size:22px}
+.play{width:62px;height:62px;border-radius:50%;background:var(--pink);color:#fff;font-size:24px}
+.list{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+.row{display:block;width:100%;text-align:left;font-size:14px;padding:9px 8px;border-radius:12px;color:var(--ink)}
+.row.cur{background:var(--line);font-weight:700}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="art" id="art">🎵</div>
+  <h1 id="title">—</h1>
+  <div class="by" id="by">—</div>
+  <input type="range" id="seek" min="0" max="100" value="0" step="0.1" aria-label="Seek">
+  <div class="ctrl">
+    <button id="prev" aria-label="Previous">⏮</button>
+    <button class="play" id="play" aria-label="Play">▶</button>
+    <button id="next" aria-label="Next">⏭</button>
+  </div>
+  <div class="list" id="list"></div>
+  <audio id="audio"></audio>
+</div>
+
+<script>
+/* 🎀 ADD YOUR SONGS HERE
+   src = "data:audio/mpeg;base64,..." (embedded mp3) or a file path like "songs/a.mp3" */
+const SONGS = [
+  { title: "Strawberry Lullaby", artist: "Demo tune", emoji: "🍓", notes: "E1 G1 c2 B1 G1 E2 D1 F1 A2 G1 E1 C2", bpm: 96 },
+  { title: "Cotton Candy Clouds", artist: "Demo tune", emoji: "☁️", notes: "C1 E1 G1 E1 A1 G1 E1 C1 D1 F1 A1 F1 G2 _1", bpm: 120 },
+  // { title: "My Song", artist: "Me", emoji: "💗", src: "data:audio/mpeg;base64,..." },
+];
+
+/* tiny synth so the demo tunes play without any files */
+const F={C:523.25,D:587.33,E:659.25,F:698.46,G:783.99,A:880,B:987.77,c:1046.5,_:0};
+function synth(s,bpm){
+  const sr=22050,T=s.split(" ").map(t=>[F[t[0]],Math.floor(parseFloat(t.slice(1))*60/bpm*sr)]);
+  const pcm=new Int16Array(T.reduce((a,t)=>a+t[1],0)*3);let o=0;
+  for(let l=0;l<3;l++)for(const [f,n] of T)for(let i=0;i<n;i++){
+    const t=i/sr,e=Math.min(1,i/200)*Math.min(1,(n-i)/1200)*Math.exp(-t*1.8);
+    pcm[o++]=f?Math.sin(6.2832*f*t)*.3*e*32767:0;}
+  const b=new ArrayBuffer(44+pcm.length*2),v=new DataView(b),w=(p,x)=>[...x].forEach((c,i)=>v.setUint8(p+i,c.charCodeAt(0)));
+  w(0,"RIFF");v.setUint32(4,36+pcm.length*2,true);w(8,"WAVEfmt ");v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+  v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,"data");v.setUint32(40,pcm.length*2,true);
+  new Int16Array(b,44).set(pcm);
+  return URL.createObjectURL(new Blob([b],{type:"audio/wav"}));
+}
+
+const $=id=>document.getElementById(id),audio=$("audio");
+const songs=SONGS.map(s=>({...s,src:s.src||synth(s.notes,s.bpm)}));
+let i=0;
+
+function show(){
+  const s=songs[i];
+  $("title").textContent=s.title;$("by").textContent=s.artist;$("art").textContent=s.emoji||"🎵";
+  $("list").innerHTML="";
+  songs.forEach((x,n)=>{
+    const b=document.createElement("button");b.className="row"+(n===i?" cur":"");
+    b.textContent=(x.emoji||"🎵")+"  "+x.title;b.onclick=()=>go(n);$("list").appendChild(b);
+  });
+}
+function go(n){i=(n+songs.length)%songs.length;audio.src=songs[i].src;show();audio.play();}
+
+$("play").onclick=()=>{if(!audio.src)audio.src=songs[i].src;audio.paused?audio.play():audio.pause()};
+$("next").onclick=()=>go(i+1);
+$("prev").onclick=()=>go(i-1);
+audio.onplay=()=>$("play").textContent="⏸";
+audio.onpause=()=>$("play").textContent="▶";
+audio.onended=()=>go(i+1);
+audio.ontimeupdate=()=>{const p=audio.duration?audio.currentTime/audio.duration*100:0;$("seek").value=p;$("seek").style.setProperty("--p",p+"%")};
+$("seek").oninput=e=>{if(audio.duration)audio.currentTime=e.target.value/100*audio.duration};
+if(songs.length)show();
+</script>
+</body>
+</html>
